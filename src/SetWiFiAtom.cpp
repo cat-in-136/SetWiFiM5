@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #ifdef ARDUINO_M5Stack_ATOM
 #include <M5Atom.h>
 #else
