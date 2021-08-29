@@ -152,6 +152,7 @@ void setup() {
 #if ARDUINO_M5Stack_ATOM
   M5.begin(true, false, true);
   //Wire.begin(26, 32);
+  delay(1);
   M5.dis.clear();
   M5.dis.fillpix(0x707070);
   M5.update();
