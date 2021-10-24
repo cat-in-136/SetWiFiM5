@@ -5,15 +5,16 @@
 #include <M5Stack.h>
 #include <M5StackUpdater.h>
 #endif
-#include <WiFi.h>
 #include <Preferences.h>
+#include <WiFi.h>
+
+static const size_t M5EZ_WIFI_CONFIG_MAX = 16;
 
 typedef enum CmdStat_T {
   CMD_STAT_INITIAL = 0,
   CMD_STAT_WAIT_SSID,
   CMD_STAT_WAIT_PASSWD,
 } CmdStat;
-
 
 static void showWiFiSetting() {
   Preferences preferences;
@@ -24,10 +25,29 @@ static void showWiFiSetting() {
     String passwd = preferences.getString("WIFI_PASSWD");
     preferences.end();
 
+    Serial.println("wifi-config:");
     Serial.print("SSID: ");
     Serial.println(ssid);
     Serial.print("PASS: ");
     Serial.println(passwd);
+  }
+
+  {
+    preferences.begin("M5ez");
+    for (uint8_t i = 1; i <= M5EZ_WIFI_CONFIG_MAX; i++) {
+      String idx_ssid = "SSID" + (String)i;
+      String idx_pass = "key" + (String)i;
+      String ssid = preferences.getString(idx_ssid.c_str(), "");
+      String pass = preferences.getString(idx_pass.c_str(), "");
+      if (ssid != "") {
+        Serial.printf("M5ez.wifi config #%d:\n", i);
+        Serial.print("SSID: ");
+        Serial.println(ssid);
+        Serial.print("PASS: ");
+        Serial.println(pass);
+      }
+    }
+    preferences.end();
   }
 
   {
@@ -121,7 +141,8 @@ static void testWiFiConnection() {
     delay(500);
     if (WiFi.status() == WL_CONNECTED) {
       break;
-    }}
+    }
+  }
 
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println(" Connected.");
@@ -146,12 +167,12 @@ static void testWiFiConnection() {
 }
 
 void setup() {
-  //Serial.begin(115200); // start serial for output
+  // Serial.begin(115200); // start serial for output
   Serial.print("initializing...");
 
 #if ARDUINO_M5Stack_ATOM
   M5.begin(true, false, true);
-  //Wire.begin(26, 32);
+  // Wire.begin(26, 32);
   delay(1);
   M5.dis.clear();
   M5.dis.fillpix(0x707070);
@@ -169,7 +190,7 @@ void setup() {
   M5.Lcd.setTextSize(2);
   //---osmar
 
-  //Wire.begin();
+  // Wire.begin();
 
   // mute speaker
   M5.Speaker.begin();
@@ -192,100 +213,121 @@ void loop() {
     command.trim();
 
     switch (cmdStatus) {
-      case CMD_STAT_INITIAL:
-        if (command == "1") {
-          scanWiFi();
-          cmdStatus = CMD_STAT_INITIAL;
-          transit = true;
-        } else if (command == "2") {
-          cmdStatus = CMD_STAT_WAIT_SSID;
-          transit = true;
-        } else if (command == "3") {
-          testWiFiConnection();
-          cmdStatus = CMD_STAT_INITIAL;
-          transit = true;
-        } else if (command == "4") {
-          Preferences preferences;
+    case CMD_STAT_INITIAL:
+      if (command == "1") {
+        scanWiFi();
+        cmdStatus = CMD_STAT_INITIAL;
+        transit = true;
+      } else if (command == "2") {
+        cmdStatus = CMD_STAT_WAIT_SSID;
+        transit = true;
+      } else if (command == "3") {
+        testWiFiConnection();
+        cmdStatus = CMD_STAT_INITIAL;
+        transit = true;
+      } else if (command == "4") {
+        Preferences preferences;
 
-          preferences.begin("wifi-config");
-          if ( preferences.clear() ) {
-            Serial.println("wifi-config clear ... done");
-          } else {
-            Serial.println("wifi-config clear ... failed");
+        preferences.begin("wifi-config");
+        if (preferences.clear()) {
+          Serial.println("wifi-config clear ... done");
+        } else {
+          Serial.println("wifi-config clear ... failed");
+        }
+        preferences.end();
+
+        preferences.begin("M5ez");
+        for (uint8_t i = 1; i <= M5EZ_WIFI_CONFIG_MAX; i++) {
+          String idx_ssid = "SSID" + (String)i;
+          String idx_pass = "key" + (String)i;
+          if (preferences.remove(idx_ssid.c_str())) {
+            Serial.printf("M5ez %s clear\n", idx_ssid.c_str());
           }
-          preferences.end();
-
-          preferences.begin("nvs.net80211");
-          if ( preferences.clear() ) {
-            Serial.println("Latest connected WiFi config (nvs.net80211) clear ... done");
-          } else {
-            Serial.println("Latest connected WiFi config (nvs.net80211) clear ... failed");
+          if (preferences.remove(idx_pass.c_str())) {
+            Serial.printf("M5ez %s clear\n", idx_pass.c_str());
           }
-          preferences.end();
+        }
+        preferences.end();
 
-          cmdStatus = CMD_STAT_INITIAL;
-          transit = true;
-        } else if (command == "0") {
+        preferences.begin("nvs.net80211");
+        if (preferences.clear()) {
+          Serial.println(
+              "Latest connected WiFi config (nvs.net80211) clear ... done");
+        } else {
+          Serial.println(
+              "Latest connected WiFi config (nvs.net80211) clear ... failed");
+        }
+        preferences.end();
+
+        cmdStatus = CMD_STAT_INITIAL;
+        transit = true;
+      } else if (command == "0") {
 #if ARDUINO_M5Stack_ATOM
-          M5.dis.clear();
-          M5.update();
-          esp_sleep_enable_ext0_wakeup((gpio_num_t)39, LOW);
+        M5.dis.clear();
+        M5.update();
+        esp_sleep_enable_ext0_wakeup((gpio_num_t)39, LOW);
 #else
-          M5.Lcd.setBrightness(0);
-          M5.Lcd.sleep();
-          esp_sleep_enable_ext0_wakeup((gpio_num_t)BUTTON_B_PIN, LOW);
+        M5.Lcd.setBrightness(0);
+        M5.Lcd.sleep();
+        esp_sleep_enable_ext0_wakeup((gpio_num_t)BUTTON_B_PIN, LOW);
 #endif
-          Serial.println("Deep sleep");
-          delay(10);
-          esp_deep_sleep_start();
-          cmdStatus = CMD_STAT_INITIAL;
-          transit = true;
-        }
-        break;
-      case CMD_STAT_WAIT_SSID:
-        if (command != "") {
-          Serial.println(command);
-          Preferences preferences;
-          preferences.begin("wifi-config");
-          preferences.putString("WIFI_SSID", command);
-          preferences.end();
-          cmdStatus = CMD_STAT_WAIT_PASSWD;
-          transit = true;
-        } else {
-          Serial.println("Cancelled");
-          cmdStatus = CMD_STAT_INITIAL;
-          transit = true;
-        }
-        break;
-      case CMD_STAT_WAIT_PASSWD:
-        if (command != "") {
-          Serial.println(command);
-          Preferences preferences;
-          preferences.begin("wifi-config");
-          preferences.putString("WIFI_PASSWD", command);
-          preferences.end();
-          cmdStatus = CMD_STAT_INITIAL;
-          transit = true;
-        } else {
-          Serial.println("Cancelled");
-          cmdStatus = CMD_STAT_INITIAL;
-          transit = true;
-        }
-        break;
+        Serial.println("Deep sleep");
+        delay(10);
+        esp_deep_sleep_start();
+        cmdStatus = CMD_STAT_INITIAL;
+        transit = true;
+      }
+      break;
+    case CMD_STAT_WAIT_SSID:
+      if (command != "") {
+        Serial.println(command);
+        Preferences preferences;
+        preferences.begin("wifi-config");
+        preferences.putString("WIFI_SSID", command);
+        preferences.end();
+        preferences.begin("M5ez");
+        preferences.putString("SSID1", command);
+        preferences.end();
+        cmdStatus = CMD_STAT_WAIT_PASSWD;
+        transit = true;
+      } else {
+        Serial.println("Cancelled");
+        cmdStatus = CMD_STAT_INITIAL;
+        transit = true;
+      }
+      break;
+    case CMD_STAT_WAIT_PASSWD:
+      if (command != "") {
+        Serial.println(command);
+        Preferences preferences;
+        preferences.begin("wifi-config");
+        preferences.putString("WIFI_PASSWD", command);
+        preferences.end();
+        preferences.begin("M5ez");
+        preferences.putString("key1", command);
+        preferences.end();
+        cmdStatus = CMD_STAT_INITIAL;
+        transit = true;
+      } else {
+        Serial.println("Cancelled");
+        cmdStatus = CMD_STAT_INITIAL;
+        transit = true;
+      }
+      break;
     }
   }
 
   if (transit) {
     switch (cmdStatus) {
-      case CMD_STAT_INITIAL:
-        showInitial();
-        break;
-      case CMD_STAT_WAIT_SSID:
-        Serial.print("SSID? ");
-        break;
-      case CMD_STAT_WAIT_PASSWD:
-        Serial.print("PASS? ");
-        break;
+    case CMD_STAT_INITIAL:
+      showInitial();
+      break;
+    case CMD_STAT_WAIT_SSID:
+      Serial.print("SSID? ");
+      break;
+    case CMD_STAT_WAIT_PASSWD:
+      Serial.print("PASS? ");
+      break;
     }
   }
 
