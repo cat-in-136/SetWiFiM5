@@ -1,6 +1,8 @@
 #include <Arduino.h>
-#ifdef ARDUINO_M5Stack_ATOM
+#if defined(ARDUINO_M5Stack_ATOM)
 #include <M5Atom.h>
+#elif defined(ARDUINO_M5PAPER_BUILDFLAG)
+#include <M5EPD.h>
 #else
 #include <M5Stack.h>
 #include <M5StackUpdater.h>
@@ -8,7 +10,12 @@
 #include <Preferences.h>
 #include <WiFi.h>
 
+#ifdef _M5EPD_H_
+static const size_t M5EZ_WIFI_CONFIG_MAX = 0;
+#define M5PAPER_FACTORY_TEST_WIFICONFIG
+#else
 static const size_t M5EZ_WIFI_CONFIG_MAX = 16;
+#endif
 
 typedef enum CmdStat_T {
   CMD_STAT_INITIAL = 0,
@@ -32,7 +39,7 @@ static void showWiFiSetting() {
     Serial.println(passwd);
   }
 
-  {
+  if (M5EZ_WIFI_CONFIG_MAX > 0) {
     preferences.begin("M5ez");
     for (uint8_t i = 1; i <= M5EZ_WIFI_CONFIG_MAX; i++) {
       String idx_ssid = "SSID" + (String)i;
@@ -49,6 +56,21 @@ static void showWiFiSetting() {
     }
     preferences.end();
   }
+
+#ifdef M5PAPER_FACTORY_TEST_WIFICONFIG
+  {
+    preferences.begin("Setting");
+    String ssid = preferences.getString("ssid");
+    String passwd = preferences.getString("pswd");
+    preferences.end();
+
+    Serial.println("Setting (M5Paper FactoryTest Setting):");
+    Serial.print("SSID: ");
+    Serial.println(ssid);
+    Serial.print("PASS: ");
+    Serial.println(passwd);
+  }
+#endif
 
   {
     char wifi_ssid[37] = {0};
@@ -78,7 +100,7 @@ static void showInitial() {
 
 static void scanWiFi() {
   Serial.print("Scan WiFi ... ");
-#if ARDUINO_M5Stack_ATOM
+#ifdef ARDUINO_M5Stack_ATOM
   M5.dis.fillpix(0x707070);
   M5.update();
 #endif
@@ -86,7 +108,7 @@ static void scanWiFi() {
   const int n = WiFi.scanNetworks();
   if (n == 0) {
     Serial.println("No network found");
-#if ARDUINO_M5Stack_ATOM
+#ifdef ARDUINO_M5Stack_ATOM
     M5.dis.fillpix(0x700000);
 #endif
   } else {
@@ -99,7 +121,7 @@ static void scanWiFi() {
       Serial.printf(" (%d) ", WiFi.RSSI(i));
       Serial.println((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? " " : "*");
     }
-#if ARDUINO_M5Stack_ATOM
+#ifdef ARDUINO_M5Stack_ATOM
     M5.dis.fillpix(0x700000);
 #endif
   }
@@ -125,7 +147,7 @@ static void testWiFiConnection() {
   }
 
   Serial.println("WiFi connection test");
-#if ARDUINO_M5Stack_ATOM
+#ifdef ARDUINO_M5Stack_ATOM
   M5.dis.fillpix(0x707070);
   M5.update();
 #endif
@@ -161,7 +183,7 @@ static void testWiFiConnection() {
   delay(100);
   Serial.println("WiFi disabled.");
 
-#if ARDUINO_M5Stack_ATOM
+#ifdef ARDUINO_M5Stack_ATOM
   M5.dis.fillpix(0x700000);
 #endif
 }
@@ -170,14 +192,23 @@ void setup() {
   // Serial.begin(115200); // start serial for output
   Serial.print("initializing...");
 
-#if ARDUINO_M5Stack_ATOM
+#if defined(ARDUINO_M5Stack_ATOM)
   M5.begin(true, false, true);
   // Wire.begin(26, 32);
   delay(1);
   M5.dis.clear();
   M5.dis.fillpix(0x707070);
   M5.update();
-#else
+#elif defined(_M5EPD_H_)
+  M5.begin();
+  M5.EPD.Clear(true);
+  M5EPD_Canvas canvas(&M5.EPD);
+  canvas.createCanvas(M5EPD_PANEL_W, M5EPD_PANEL_H);
+  canvas.setTextSize(3);
+  canvas.drawString("Connect USB Serial with bow rate 115200bps", 10,
+                    random(50, M5EPD_PANEL_H - 50));
+  canvas.pushCanvas(0, 0, UPDATE_MODE_DU4);
+#elif defined(_M5STACK_H_)
   //---osmar
   M5.begin();
   if (digitalRead(BUTTON_A_PIN) == 0) {
@@ -236,18 +267,33 @@ void loop() {
         }
         preferences.end();
 
-        preferences.begin("M5ez");
-        for (uint8_t i = 1; i <= M5EZ_WIFI_CONFIG_MAX; i++) {
-          String idx_ssid = "SSID" + (String)i;
-          String idx_pass = "key" + (String)i;
-          if (preferences.remove(idx_ssid.c_str())) {
-            Serial.printf("M5ez %s clear\n", idx_ssid.c_str());
+        if (M5EZ_WIFI_CONFIG_MAX > 0) {
+          preferences.begin("M5ez");
+          for (uint8_t i = 1; i <= M5EZ_WIFI_CONFIG_MAX; i++) {
+            String idx_ssid = "SSID" + (String)i;
+            String idx_pass = "key" + (String)i;
+            if (preferences.remove(idx_ssid.c_str())) {
+              Serial.printf("M5ez %s clear\n", idx_ssid.c_str());
+            }
+            if (preferences.remove(idx_pass.c_str())) {
+              Serial.printf("M5ez %s clear\n", idx_pass.c_str());
+            }
           }
-          if (preferences.remove(idx_pass.c_str())) {
-            Serial.printf("M5ez %s clear\n", idx_pass.c_str());
-          }
+          preferences.end();
         }
-        preferences.end();
+
+#ifdef M5PAPER_FACTORY_TEST_WIFICONFIG
+        {
+          preferences.begin("Setting");
+          if (preferences.remove("ssid")) {
+            Serial.println("Setting.ssid clear");
+          }
+          if (preferences.remove("pswd")) {
+            Serial.println("Setting.pswd clear");
+          }
+          preferences.end();
+        }
+#endif
 
         preferences.begin("nvs.net80211");
         if (preferences.clear()) {
@@ -262,11 +308,15 @@ void loop() {
         cmdStatus = CMD_STAT_INITIAL;
         transit = true;
       } else if (command == "0") {
-#if ARDUINO_M5Stack_ATOM
+#if defined(ARDUINO_M5Stack_ATOM)
         M5.dis.clear();
         M5.update();
         esp_sleep_enable_ext0_wakeup((gpio_num_t)39, LOW);
-#else
+#elif defined(_M5EPD_H_)
+        M5.disableEPDPower();
+        M5.disableEXTPower();
+        esp_sleep_enable_ext0_wakeup((gpio_num_t)M5EPD_KEY_PUSH_PIN, LOW);
+#elif defined(_M5STACK_H_)
         M5.Lcd.setBrightness(0);
         M5.Lcd.sleep();
         esp_sleep_enable_ext0_wakeup((gpio_num_t)BUTTON_B_PIN, LOW);
@@ -285,9 +335,16 @@ void loop() {
         preferences.begin("wifi-config");
         preferences.putString("WIFI_SSID", command);
         preferences.end();
-        preferences.begin("M5ez");
-        preferences.putString("SSID1", command);
+        if (M5EZ_WIFI_CONFIG_MAX > 0) {
+          preferences.begin("M5ez");
+          preferences.putString("SSID1", command);
+          preferences.end();
+        }
+#ifdef M5PAPER_FACTORY_TEST_WIFICONFIG
+        preferences.begin("Setting");
+        preferences.putString("ssid", command);
         preferences.end();
+#endif
         cmdStatus = CMD_STAT_WAIT_PASSWD;
         transit = true;
       } else {
@@ -303,9 +360,16 @@ void loop() {
         preferences.begin("wifi-config");
         preferences.putString("WIFI_PASSWD", command);
         preferences.end();
-        preferences.begin("M5ez");
-        preferences.putString("key1", command);
+        if (M5EZ_WIFI_CONFIG_MAX > 0) {
+          preferences.begin("M5ez");
+          preferences.putString("key1", command);
+          preferences.end();
+        }
+#ifdef M5PAPER_FACTORY_TEST_WIFICONFIG
+        preferences.begin("Setting");
+        preferences.putString("pswd", command);
         preferences.end();
+#endif
         cmdStatus = CMD_STAT_INITIAL;
         transit = true;
       } else {
