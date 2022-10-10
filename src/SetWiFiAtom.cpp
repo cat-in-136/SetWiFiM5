@@ -1,5 +1,6 @@
+#if defined(ARDUINO_ESP32_DEV)
 #include <Arduino.h>
-#if defined(ARDUINO_M5Stack_ATOM)
+#elif defined(ARDUINO_M5Stack_ATOM)
 #include <M5Atom.h>
 #elif defined(ARDUINO_M5PAPER_BUILDFLAG)
 #include <M5EPD.h>
@@ -189,10 +190,11 @@ static void testWiFiConnection() {
 }
 
 void setup() {
-  // Serial.begin(115200); // start serial for output
   Serial.print("initializing...");
 
-#if defined(ARDUINO_M5Stack_ATOM)
+#if defined(ARDUINO_ESP32_DEV)
+  Serial.begin(115200);
+#elif defined(ARDUINO_M5Stack_ATOM)
   M5.begin(true, false, true);
   // Wire.begin(26, 32);
   delay(1);
@@ -395,5 +397,7 @@ void loop() {
     }
   }
 
+#ifdef _M5STACK_H_
   M5.update();
+#endif
 }
