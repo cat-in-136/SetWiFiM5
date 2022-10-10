@@ -1,21 +1,25 @@
 #if defined(ARDUINO_ESP32_DEV)
 #include <Arduino.h>
-#elif defined(ARDUINO_M5Stack_ATOM)
-#include <M5Atom.h>
-#elif defined(ARDUINO_M5PAPER_BUILDFLAG)
-#include <M5EPD.h>
 #else
-#include <M5Stack.h>
+#include <M5Unified.h>
+#endif
+
+#if __has_include(<M5StackUpdater.h>)
 #include <M5StackUpdater.h>
 #endif
+
+#include "M5AtomLED.h"
 #include <Preferences.h>
 #include <WiFi.h>
 
-#ifdef _M5EPD_H_
-static const size_t M5EZ_WIFI_CONFIG_MAX = 0;
-#define M5PAPER_FACTORY_TEST_WIFICONFIG
-#else
+#if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_FIRE)
 static const size_t M5EZ_WIFI_CONFIG_MAX = 16;
+#else
+static const size_t M5EZ_WIFI_CONFIG_MAX = 0;
+#endif
+
+#ifdef ARDUINO_M5STACK_Paper
+#define M5PAPER_FACTORY_TEST_WIFICONFIG
 #endif
 
 typedef enum CmdStat_T {
@@ -102,15 +106,16 @@ static void showInitial() {
 static void scanWiFi() {
   Serial.print("Scan WiFi ... ");
 #ifdef ARDUINO_M5Stack_ATOM
-  M5.dis.fillpix(0x707070);
-  M5.update();
+  M5_dis.fillpix(0x707070);
+  M5_dis.update();
 #endif
 
   const int n = WiFi.scanNetworks();
   if (n == 0) {
     Serial.println("No network found");
 #ifdef ARDUINO_M5Stack_ATOM
-    M5.dis.fillpix(0x700000);
+    M5_dis.fillpix(0x700000);
+    M5_dis.update();
 #endif
   } else {
     Serial.printf("%d networks found!\n", n);
@@ -123,7 +128,8 @@ static void scanWiFi() {
       Serial.println((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? " " : "*");
     }
 #ifdef ARDUINO_M5Stack_ATOM
-    M5.dis.fillpix(0x700000);
+    M5_dis.fillpix(0x707070);
+    M5_dis.update();
 #endif
   }
 }
@@ -149,8 +155,8 @@ static void testWiFiConnection() {
 
   Serial.println("WiFi connection test");
 #ifdef ARDUINO_M5Stack_ATOM
-  M5.dis.fillpix(0x707070);
-  M5.update();
+  M5_dis.fillpix(0x707070);
+  M5_dis.update();
 #endif
 
   for (uint8_t i = 0; i < 30 * 2 * 3; i++) {
@@ -185,51 +191,48 @@ static void testWiFiConnection() {
   Serial.println("WiFi disabled.");
 
 #ifdef ARDUINO_M5Stack_ATOM
-  M5.dis.fillpix(0x700000);
+  M5_dis.fillpix(0x007000);
+  M5_dis.update();
 #endif
 }
 
 void setup() {
-  Serial.print("initializing...");
-
 #if defined(ARDUINO_ESP32_DEV)
   Serial.begin(115200);
-#elif defined(ARDUINO_M5Stack_ATOM)
-  M5.begin(true, false, true);
-  // Wire.begin(26, 32);
-  delay(1);
-  M5.dis.clear();
-  M5.dis.fillpix(0x707070);
+#else
+  auto cfg = M5.config();
+  cfg.serial_baudrate = 115200;
+  cfg.internal_spk = false;
+  M5.begin(cfg);
+
+#if __has_include(<M5StackUpdater.h>
   M5.update();
-#elif defined(_M5EPD_H_)
-  M5.begin();
-  M5.EPD.Clear(true);
-  M5EPD_Canvas canvas(&M5.EPD);
-  canvas.createCanvas(M5EPD_PANEL_W, M5EPD_PANEL_H);
-  canvas.setTextSize(3);
-  canvas.drawString("Connect USB Serial with bow rate 115200bps", 10,
-                    random(50, M5EPD_PANEL_H - 50));
-  canvas.pushCanvas(0, 0, UPDATE_MODE_DU4);
-#elif defined(_M5STACK_H_)
-  //---osmar
-  M5.begin();
-  if (digitalRead(BUTTON_A_PIN) == 0) {
+  if (M5.BtnA.isPressed()) {
     Serial.println("Will Load menu binary");
     updateFromFS(SD);
     ESP.restart();
   }
-  M5.Lcd.fillScreen(BLACK);
-  M5.Lcd.setTextColor(WHITE);
-  M5.Lcd.setTextSize(2);
-  //---osmar
+#endif
 
-  // Wire.begin();
+  M5.Display.setEpdMode(epd_mode_t::epd_text);
+  M5.Display.setTextSize(5);
+  M5.Display.setBrightness(128);
+  if (M5.Display.width() < M5.Display.height()) {
+    /// Landscape mode.
+    M5.Display.setRotation(M5.Display.getRotation() ^ 1);
+  }
 
-  // mute speaker
-  M5.Speaker.begin();
-  M5.Speaker.mute();
+  M5.Display.startWrite();
+  M5.Display.println("Connect USB Serial with bow rate 115200bps");
+  M5.Display.endWrite();
+#endif
 
-  M5.Lcd.println("Connect USB Serial with bow rate 115200bps");
+#ifdef ARDUINO_M5Stack_ATOM
+  M5_dis.begin();
+
+  M5_dis.fillpix(0x707070);
+  M5_dis.update();
+  delay(10);
 #endif
 
   showWiFiSetting();
@@ -310,18 +313,16 @@ void loop() {
         cmdStatus = CMD_STAT_INITIAL;
         transit = true;
       } else if (command == "0") {
-#if defined(ARDUINO_M5Stack_ATOM)
-        M5.dis.clear();
-        M5.update();
+#ifndef ARDUINO_ESP32_DEV
+        M5.Display.clearDisplay();
+        M5.Display.powerSaveOn();
+        M5.Display.sleep();
+#endif
+#ifdef ARDUINO_M5Stack_ATOM
+        M5_dis.clear();
+        M5_dis.update();
+        delay(10);
         esp_sleep_enable_ext0_wakeup((gpio_num_t)39, LOW);
-#elif defined(_M5EPD_H_)
-        M5.disableEPDPower();
-        M5.disableEXTPower();
-        esp_sleep_enable_ext0_wakeup((gpio_num_t)M5EPD_KEY_PUSH_PIN, LOW);
-#elif defined(_M5STACK_H_)
-        M5.Lcd.setBrightness(0);
-        M5.Lcd.sleep();
-        esp_sleep_enable_ext0_wakeup((gpio_num_t)BUTTON_B_PIN, LOW);
 #endif
         Serial.println("Deep sleep");
         delay(10);
@@ -397,7 +398,7 @@ void loop() {
     }
   }
 
-#ifdef _M5STACK_H_
+#ifndef ARDUINO_ESP32_DEV
   M5.update();
 #endif
 }
