@@ -205,7 +205,7 @@ void setup() {
   cfg.internal_spk = false;
   M5.begin(cfg);
 
-#if __has_include(<M5StackUpdater.h>
+#if __has_include(<M5StackUpdater.h>)
   M5.update();
   if (M5.BtnA.isPressed()) {
     Serial.println("Will Load menu binary");
